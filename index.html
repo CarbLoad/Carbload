@@ -514,16 +514,20 @@ svg.chart { width: 100%; height: auto; display: block; }
 
       <div class="drawer-section">
         <h3>Connections</h3>
-        <p class="hero-sub" style="margin-top: -6px;">Simulated for this demo — no real accounts are linked. Turn on whichever tracker you actually use; the app only shows fields and cards for connected trackers.</p>
-        <div class="toggle-row">
+        <p class="hero-sub" style="margin-top: -6px;">Whoop and Strava connect to your real account. Garmin, Apple Health and Google Health are simulated for this demo — toggle them on if you want to log those manually.</p>
+        <div class="toggle-row" id="whoop-connect-row">
           <div class="toggle-row-text">
             <div class="toggle-row-label">Whoop</div>
-            <div class="toggle-row-help">Recovery, strain, sleep and HRV.</div>
+            <div class="toggle-row-help">Recovery, strain, sleep and HRV, pulled from your real Whoop account.</div>
           </div>
-          <label class="switch">
-            <input type="checkbox" id="connect-whoop-toggle">
-            <span class="switch-track"></span>
-          </label>
+          <div style="text-align: right; flex-shrink: 0;">
+            <button type="button" class="btn btn-secondary" id="whoop-connect-btn" style="font-size: 12.5px; padding: 8px 12px;">Connect</button>
+            <div class="hidden" id="whoop-connected-actions">
+              <div style="font-size: 11.5px; color: var(--recovery-high); font-weight: 600; margin-bottom: 4px;">Connected ✓</div>
+              <button type="button" class="link-btn" id="whoop-sync-btn" style="font-size: 12px; padding: 0;">Sync now</button>
+              <button type="button" class="link-btn" id="whoop-disconnect-btn" style="font-size: 12px; padding: 0; color: var(--recovery-low); margin-left: 8px;">Disconnect</button>
+            </div>
+          </div>
         </div>
         <div class="toggle-row">
           <div class="toggle-row-text">
@@ -535,15 +539,19 @@ svg.chart { width: 100%; height: auto; display: block; }
             <span class="switch-track"></span>
           </label>
         </div>
-        <div class="toggle-row">
+        <div class="toggle-row" id="strava-connect-row">
           <div class="toggle-row-text">
             <div class="toggle-row-label">Strava</div>
-            <div class="toggle-row-help">Latest activity, relative effort and calories — effort feeds the recovery nudge, calories feed the burn estimate.</div>
+            <div class="toggle-row-help">Latest activity, relative effort and calories, pulled from your real Strava account.</div>
           </div>
-          <label class="switch">
-            <input type="checkbox" id="connect-strava-toggle">
-            <span class="switch-track"></span>
-          </label>
+          <div style="text-align: right; flex-shrink: 0;">
+            <button type="button" class="btn btn-secondary" id="strava-connect-btn" style="font-size: 12.5px; padding: 8px 12px;">Connect</button>
+            <div class="hidden" id="strava-connected-actions">
+              <div style="font-size: 11.5px; color: var(--recovery-high); font-weight: 600; margin-bottom: 4px;">Connected ✓</div>
+              <button type="button" class="link-btn" id="strava-sync-btn" style="font-size: 12px; padding: 0;">Sync now</button>
+              <button type="button" class="link-btn" id="strava-disconnect-btn" style="font-size: 12px; padding: 0; color: var(--recovery-low); margin-left: 8px;">Disconnect</button>
+            </div>
+          </div>
         </div>
         <div class="toggle-row">
           <div class="toggle-row-text">
@@ -1529,7 +1537,10 @@ svg.chart { width: 100%; height: auto; display: block; }
       // tracker-specific fields and cards show up). Whoop defaults on since
       // it's the flagship integration this demo was built around; the rest
       // default off until the person turns them on.
-      integrations: { whoop: true, garmin: false, strava: false, appleHealth: false, googleHealth: false },
+      // Whoop and Strava are real OAuth connections now, so they default to
+      // disconnected and get set true only once checkOAuthConnections()
+      // confirms a token actually exists in Supabase for this user.
+      integrations: { whoop: false, garmin: false, strava: false, appleHealth: false, googleHealth: false },
       garminLogs: [],       // {date, recovery, strain, sleepPct, calories}
       stravaLogs: [],       // {date, activityType, distanceKm, durationMin, relativeEffort, calories}
       appleHealthLogs: [],  // {date, activeEnergy, restingHr, sleepHours}
@@ -2188,6 +2199,11 @@ svg.chart { width: 100%; height: auto; display: block; }
 
   function loadSampleData() {
     state = defaultState();
+    // Sample data still fabricates Whoop-shaped entries below to demo that
+    // card, so it's shown as "connected" here for demo purposes only - the
+    // caller skips checkOAuthConnections() after this so it isn't
+    // immediately overwritten by real (likely absent) connection status.
+    state.integrations.whoop = true;
     var rand = mulberry32(42);
     var weight = 91.5;
     // ~37 kcal/kg is a reasonable maintenance estimate for an active 90kg
@@ -3294,8 +3310,8 @@ svg.chart { width: 100%; height: auto; display: block; }
   // state.integrations and once at startup.
   function updateConnectionVisibility() {
     var whoopConnected = !!state.integrations.whoop;
-    var whoopToggleEl = document.getElementById("connect-whoop-toggle");
-    if (whoopToggleEl) whoopToggleEl.checked = whoopConnected;
+    updateOAuthConnectUI("whoop", whoopConnected);
+    updateOAuthConnectUI("strava", !!state.integrations.strava);
     TRACKER_IDS.forEach(function (id) {
       var toggleId = "connect-" + id.replace(/([A-Z])/g, "-$1").toLowerCase() + "-toggle";
       var toggleEl = document.getElementById(toggleId);
@@ -3654,9 +3670,14 @@ svg.chart { width: 100%; height: auto; display: block; }
       state.weightLogs.push({ date: todayISO(), weightKg: val });
       saveState();
       showApp();
+      checkOAuthConnections();
     });
 
     document.getElementById("setup-sample-btn").addEventListener("click", function () {
+      // Sample data fabricates a Whoop card for demo purposes, so this
+      // intentionally skips checkOAuthConnections() - a real Whoop
+      // connection (if any) still gets picked up next time the app loads
+      // via onSignedIn(), this just doesn't immediately stomp the demo.
       loadSampleData();
       showApp();
     });
@@ -3764,19 +3785,18 @@ svg.chart { width: 100%; height: auto; display: block; }
       renderAll();
     });
 
-    document.getElementById("connect-whoop-toggle").addEventListener("change", function () {
-      state.integrations.whoop = this.checked;
-      saveState();
-      renderAll();
-    });
+    wireOAuthEvents();
     TRACKER_IDS.forEach(function (id) {
       var toggleId = "connect-" + id.replace(/([A-Z])/g, "-$1").toLowerCase() + "-toggle";
-      document.getElementById(toggleId).addEventListener("change", function () {
-        state.integrations[id] = this.checked;
-        if (!this.checked && editingTrackerDate[id]) cancelEditTracker(id);
-        saveState();
-        renderAll();
-      });
+      var toggleEl = document.getElementById(toggleId);
+      if (toggleEl) {
+        toggleEl.addEventListener("change", function () {
+          state.integrations[id] = this.checked;
+          if (!this.checked && editingTrackerDate[id]) cancelEditTracker(id);
+          saveState();
+          renderAll();
+        });
+      }
 
       document.getElementById("log-" + id + "-btn").addEventListener("click", function () { saveTrackerEntry(id); });
       document.getElementById("log-" + id + "-cancel-edit").addEventListener("click", function () { cancelEditTracker(id); });
@@ -4272,12 +4292,131 @@ svg.chart { width: 100%; height: auto; display: block; }
     });
   }
 
+  // ---------- real tracker connections (Whoop, Strava) ----------
+  // These talk to small server-side functions (netlify/functions) rather
+  // than calling Whoop/Strava directly from the browser, because the OAuth
+  // token exchange needs a client secret that must never reach the client.
+  function updateOAuthConnectUI(provider, connected) {
+    var btn = document.getElementById(provider + "-connect-btn");
+    var actions = document.getElementById(provider + "-connected-actions");
+    if (!btn || !actions) return;
+    if (connected) { btn.classList.add("hidden"); actions.classList.remove("hidden"); }
+    else { btn.classList.remove("hidden"); actions.classList.add("hidden"); }
+  }
+
+  async function checkOAuthConnections() {
+    if (!currentUserId) return;
+    try {
+      var res = await sb.from("oauth_tokens").select("provider").eq("user_id", currentUserId);
+      var rows = (res && res.data) || [];
+      var connected = {};
+      rows.forEach(function (r) { connected[r.provider] = true; });
+      state.integrations.whoop = !!connected.whoop;
+      state.integrations.strava = !!connected.strava;
+      updateOAuthConnectUI("whoop", !!connected.whoop);
+      updateOAuthConnectUI("strava", !!connected.strava);
+      updateConnectionVisibility();
+    } catch (e) {
+      console.warn("Could not check tracker connections", e);
+    }
+  }
+
+  async function startOAuthConnect(provider) {
+    var sessionRes = await sb.auth.getSession();
+    var token = sessionRes.data && sessionRes.data.session && sessionRes.data.session.access_token;
+    if (!token) { showToast("Please log in again first"); return; }
+    window.location.href = "/.netlify/functions/" + provider + "-authorize?access_token=" + encodeURIComponent(token);
+  }
+
+  async function refreshTrackerLogsFromSupabase(provider) {
+    var table = provider === "whoop" ? "whoop_logs" : "strava_logs";
+    var stateKey = provider === "whoop" ? "whoopLogs" : "stravaLogs";
+    var cfg = SYNC_TABLES.filter(function (c) { return c.table === table; })[0];
+    if (!cfg || !currentUserId) return;
+    var res = await sb.from(table).select("*").eq("user_id", currentUserId);
+    var rows = (res && res.data) || [];
+    state[stateKey] = rows.map(function (row) {
+      var entry = {};
+      Object.keys(cfg.cols).forEach(function (jsKey) { entry[jsKey] = row[cfg.cols[jsKey]]; });
+      return entry;
+    });
+    suppressSync = true;
+    saveState();
+    suppressSync = false;
+    renderAll();
+  }
+
+  async function syncTracker(provider) {
+    var btn = document.getElementById(provider + "-sync-btn");
+    var sessionRes = await sb.auth.getSession();
+    var token = sessionRes.data && sessionRes.data.session && sessionRes.data.session.access_token;
+    if (!token) { showToast("Please log in again first"); return; }
+    if (btn) { btn.disabled = true; btn.textContent = "Syncing…"; }
+    try {
+      var res = await fetch("/.netlify/functions/" + provider + "-sync", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + token }
+      });
+      if (!res.ok) throw new Error("Sync failed (" + res.status + ")");
+      await refreshTrackerLogsFromSupabase(provider);
+      showToast((provider === "whoop" ? "Whoop" : "Strava") + " data synced");
+    } catch (e) {
+      console.warn("Tracker sync failed", e);
+      showToast("Sync failed — try again in a moment");
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = "Sync now"; }
+    }
+  }
+
+  async function disconnectTracker(provider) {
+    if (!currentUserId) return;
+    await sb.from("oauth_tokens").delete().eq("user_id", currentUserId).eq("provider", provider);
+    state.integrations[provider] = false;
+    updateOAuthConnectUI(provider, false);
+    saveState();
+    updateConnectionVisibility();
+    renderAll();
+    showToast((provider === "whoop" ? "Whoop" : "Strava") + " disconnected");
+  }
+
+  function wireOAuthEvents() {
+    document.getElementById("whoop-connect-btn").addEventListener("click", function () { startOAuthConnect("whoop"); });
+    document.getElementById("strava-connect-btn").addEventListener("click", function () { startOAuthConnect("strava"); });
+    document.getElementById("whoop-sync-btn").addEventListener("click", function () { syncTracker("whoop"); });
+    document.getElementById("strava-sync-btn").addEventListener("click", function () { syncTracker("strava"); });
+    document.getElementById("whoop-disconnect-btn").addEventListener("click", function () { disconnectTracker("whoop"); });
+    document.getElementById("strava-disconnect-btn").addEventListener("click", function () { disconnectTracker("strava"); });
+  }
+
+  // Reads ?whoop=connected / ?strava=connected (or =error) off the URL after
+  // the OAuth callback redirects back here, shows a toast, cleans the URL,
+  // and reports which provider (if any) just finished connecting so the
+  // caller can kick off an immediate first sync.
+  function handleOAuthRedirectParams() {
+    var params = new URLSearchParams(window.location.search);
+    var justConnected = null;
+    if (params.get("whoop") === "connected") { justConnected = "whoop"; }
+    else if (params.get("whoop") === "error") { showToast("Whoop connection failed — try again"); }
+    if (params.get("strava") === "connected") { justConnected = "strava"; }
+    else if (params.get("strava") === "error") { showToast("Strava connection failed — try again"); }
+    if (params.has("whoop") || params.has("strava")) {
+      var url = new URL(window.location.href);
+      url.searchParams.delete("whoop");
+      url.searchParams.delete("strava");
+      window.history.replaceState({}, "", url.toString());
+    }
+    return justConnected;
+  }
+
   // ---------- init ----------
   async function onSignedIn(userId) {
     currentUserId = userId;
     await loadStateFromSupabase(userId);
     if (state.profileSet) {
       showApp();
+      await checkOAuthConnections();
+      var justConnected = handleOAuthRedirectParams();
+      if (justConnected) { syncTracker(justConnected); }
     } else {
       showSetup();
     }
