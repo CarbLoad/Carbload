@@ -57,9 +57,18 @@ exports.handler = async function (event) {
   }
 
   try {
+    // Explicitly ask for the last 30 days by date range rather than relying
+    // on the API's documented-but-unreliable "newest first" default order -
+    // in practice that default returned records from over a year ago, so a
+    // date window is the only way to reliably get recent data.
+    const now = new Date();
+    const startWindow = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const endWindow = now.toISOString();
+    const rangeParams = "start=" + encodeURIComponent(startWindow) + "&end=" + encodeURIComponent(endWindow) + "&limit=25";
+
     const [recoveryRes, cyclesRes] = await Promise.all([
-      fetch("https://api.prod.whoop.com/developer/v2/recovery?limit=10", { headers: { Authorization: "Bearer " + accessToken } }),
-      fetch("https://api.prod.whoop.com/developer/v2/cycle?limit=10", { headers: { Authorization: "Bearer " + accessToken } })
+      fetch("https://api.prod.whoop.com/developer/v2/recovery?" + rangeParams, { headers: { Authorization: "Bearer " + accessToken } }),
+      fetch("https://api.prod.whoop.com/developer/v2/cycle?" + rangeParams, { headers: { Authorization: "Bearer " + accessToken } })
     ]);
     if (!recoveryRes.ok || !cyclesRes.ok) {
       const status = !recoveryRes.ok ? recoveryRes.status : cyclesRes.status;
@@ -68,6 +77,7 @@ exports.handler = async function (event) {
     }
     const recoveryData = await recoveryRes.json();
     const cyclesData = await cyclesRes.json();
+    console.log("Whoop sync: recovery records=" + (recoveryData.records || []).length + ", cycle records=" + (cyclesData.records || []).length);
 
     const byDate = {};
     (recoveryData.records || []).forEach(function (r) {
