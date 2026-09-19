@@ -476,6 +476,7 @@ svg.chart { width: 100%; height: auto; display: block; }
             <option value="triathlon">Triathlon</option>
             <option value="cycling">Cycling</option>
             <option value="running">Running</option>
+            <option value="swimming">Swimming</option>
             <option value="strength">Strength / power</option>
           </select>
         </div>
@@ -690,6 +691,7 @@ svg.chart { width: 100%; height: auto; display: block; }
         <option value="triathlon">Triathlon</option>
         <option value="cycling">Cycling</option>
         <option value="running">Running</option>
+        <option value="swimming">Swimming</option>
         <option value="strength">Strength / power</option>
       </select>
     </div>
@@ -1024,6 +1026,7 @@ svg.chart { width: 100%; height: auto; display: block; }
               <option value="triathlon">Triathlon</option>
               <option value="cycling">Cycling</option>
               <option value="running">Running</option>
+              <option value="swimming">Swimming</option>
               <option value="strength">Strength / power</option>
             </select>
           </div>
@@ -1731,6 +1734,7 @@ svg.chart { width: 100%; height: auto; display: block; }
     triathlon: { label: "Triathlon",                 proteinPerKg: 1.7, fatPerKg: 0.9, carbPerKg: { rest: 3,   easy: 4.5, moderate: 6.5, hard: 8.5 } },
     cycling:   { label: "Cycling",                   proteinPerKg: 1.6, fatPerKg: 1.0, carbPerKg: { rest: 3,   easy: 4,   moderate: 5.5, hard: 8 } },
     running:   { label: "Running",                   proteinPerKg: 1.6, fatPerKg: 0.9, carbPerKg: { rest: 3,   easy: 4,   moderate: 5.5, hard: 7.5 } },
+    swimming:  { label: "Swimming",                  proteinPerKg: 1.7, fatPerKg: 0.9, carbPerKg: { rest: 3,   easy: 4.5, moderate: 6,   hard: 8 } },
     strength:  { label: "Strength / power",          proteinPerKg: 2.0, fatPerKg: 1.1, carbPerKg: { rest: 2.5, easy: 3,   moderate: 3.5, hard: 4.5 } }
   };
   var DAY_TYPES = ["rest", "easy", "moderate", "hard"];
@@ -1767,6 +1771,13 @@ svg.chart { width: 100%; height: auto; display: block; }
       { value: "criterium", label: "Criterium", durationMin: 60 },
       { value: "road_race", label: "Road race", durationMin: 150 },
       { value: "gran_fondo", label: "Gran fondo / century ride", durationMin: 330 },
+      { value: "custom", label: "Custom event", durationMin: null }
+    ],
+    swimming: [
+      { value: "sprint_meet", label: "Pool sprint (50m/100m) meet", durationMin: 10 },
+      { value: "distance_meet", label: "Pool distance (400m–1500m) meet", durationMin: 25 },
+      { value: "open_water_5k", label: "Open water 5K", durationMin: 90 },
+      { value: "open_water_10k", label: "Open water 10K / marathon swim", durationMin: 180 },
       { value: "custom", label: "Custom event", durationMin: null }
     ],
     running: [
@@ -2390,6 +2401,24 @@ svg.chart { width: 100%; height: auto; display: block; }
       }, null);
       return { dayType: best.intensity || "moderate", source: "workout", workout: best };
     }
+    // No manually-logged session for this day, but a completed Strava
+    // activity already synced for the same date is a real logged session
+    // too - it shouldn't still read as "Rest day / no session logged".
+    // Unlike Whoop/Garmin strain (a continuous number that accumulates
+    // through the day and isn't known until the day's basically over),
+    // a synced Strava activity is a discrete, already-finished session,
+    // so it's safe to use same-day. Its Relative Effort is rescaled onto
+    // the same 0-21 strain-like scale as the recovery nudge (see
+    // TRACKER_DEFS.strava.toEffectiveStrain / computeRecoveryNudge) to
+    // pick easy/moderate/hard.
+    if (state.integrations.strava) {
+      var stravaEntry = state.stravaLogs.filter(function (e) { return e.date === dateIso; })[0];
+      if (stravaEntry) {
+        var effStrain = TRACKER_DEFS.strava.toEffectiveStrain(stravaEntry);
+        var inferredType = effStrain == null ? "moderate" : (effStrain >= 18 ? "hard" : effStrain >= 10 ? "moderate" : "easy");
+        return { dayType: inferredType, source: "strava", stravaEntry: stravaEntry };
+      }
+    }
     var manual = state.trainingDayTypeByDate[dateIso];
     if (manual) return { dayType: manual, source: "manual" };
     return { dayType: "rest", source: "default" };
@@ -2592,31 +2621,19 @@ svg.chart { width: 100%; height: auto; display: block; }
     var todayGarmin = state.garminLogs.filter(function (g) { return g.date === today; })[0];
 
     // --- Training day type: derived from today's logged workout(s) first
-    // (most precise - exact session, real intensity), else a simple manual
-    // rest/training toggle as a fallback for days with no logged session.
-    // Whoop strain deliberately plays no part here: it accumulates through
-    // the day and isn't known until the day's basically over, so it can't
-    // inform a same-day forward-looking fueling target.
-    var todaysWorkoutsForType = workoutsOnDate(today);
-    var intensityRank = { easy: 1, moderate: 2, hard: 3 };
-    var dayType, dayTypeSource, derivingWorkout;
-    if (todaysWorkoutsForType.length) {
-      derivingWorkout = todaysWorkoutsForType.reduce(function (best, w) {
-        var i = w.intensity || "moderate";
-        return (!best || intensityRank[i] > intensityRank[best.intensity || "moderate"]) ? w : best;
-      }, null);
-      dayType = derivingWorkout.intensity || "moderate";
-      dayTypeSource = "workout";
-    } else {
-      var manualDayType = state.trainingDayTypeByDate[today];
-      if (manualDayType) {
-        dayType = manualDayType;
-        dayTypeSource = "manual";
-      } else {
-        dayType = "rest";
-        dayTypeSource = "default";
-      }
-    }
+    // (most precise - exact session, real intensity), then a synced Strava
+    // activity for the day, else a simple manual rest/training toggle as a
+    // fallback for days with no logged session at all. Whoop/Garmin strain
+    // deliberately plays no part here: it accumulates through the day and
+    // isn't known until the day's basically over, so it can't inform a
+    // same-day forward-looking fueling target. (See deriveDayType, shared
+    // with the Coach tab so both agree on what "today's type" means.)
+    var dayInfo = deriveDayType(today);
+    var dayType = dayInfo.dayType;
+    var dayTypeSource = dayInfo.source;
+    var derivingWorkout = dayInfo.workout;
+    var derivingStravaEntry = dayInfo.stravaEntry;
+    var todaysWorkoutsForType = dayTypeSource === "workout" ? workoutsOnDate(today) : [];
 
     var statusEl = document.getElementById("training-status");
     var chipRow = document.getElementById("day-type-row");
@@ -2624,6 +2641,11 @@ svg.chart { width: 100%; height: auto; display: block; }
       statusEl.innerHTML =
         '<div class="training-status-left"><span class="badge badge-high">Training day</span>' +
         '<span class="training-status-detail">' + dayType.charAt(0).toUpperCase() + dayType.slice(1) + ' · from "' + escapeHtml(derivingWorkout.label || "Workout") + '"</span></div>';
+      chipRow.classList.add("hidden");
+    } else if (dayTypeSource === "strava") {
+      statusEl.innerHTML =
+        '<div class="training-status-left"><span class="badge badge-high">Training day</span>' +
+        '<span class="training-status-detail">' + dayType.charAt(0).toUpperCase() + dayType.slice(1) + ' · from Strava ("' + escapeHtml(derivingStravaEntry.activityType || "Activity") + '")</span></div>';
       chipRow.classList.add("hidden");
     } else if (dayTypeSource === "manual") {
       statusEl.innerHTML =
@@ -2742,7 +2764,11 @@ svg.chart { width: 100%; height: auto; display: block; }
     var burnValueEl = document.getElementById("today-burn-value");
     var burnBarEl = document.getElementById("today-burn-bar");
     var burnPercentEl = document.getElementById("today-burn-percent");
-    var burnSources = connectedCalorieSources();
+    // Today's cycle hasn't been scored yet on any tracker (Whoop closes
+    // it out overnight, and other trackers behave similarly), so there's
+    // never a real number to show here for "today" - hiding it avoids it
+    // reading as broken. Previous days show the fused estimate as before.
+    var burnSources = isViewingToday ? [] : connectedCalorieSources();
     burnStatboxEl.classList.toggle("hidden", !burnSources.length);
     if (burnSources.length) {
       var burnValues = [];
@@ -3633,7 +3659,18 @@ svg.chart { width: 100%; height: auto; display: block; }
 
   function wireEvents() {
     document.querySelectorAll(".tab-btn").forEach(function (b) {
-      b.addEventListener("click", function () { switchTab(b.dataset.tab); });
+      b.addEventListener("click", function () {
+        // Clicking "Today" always jumps back to the real today, even if
+        // the tab was already open showing a previous day via the
+        // back/forward arrows - otherwise switching away and back (or
+        // just tapping Today again) leaves you stranded on whatever day
+        // you last browsed to.
+        if (b.dataset.tab === "today" && viewDate !== todayISO()) {
+          viewDate = todayISO();
+          renderToday();
+        }
+        switchTab(b.dataset.tab);
+      });
     });
 
     document.getElementById("setup-units-row").addEventListener("click", function (e) {
