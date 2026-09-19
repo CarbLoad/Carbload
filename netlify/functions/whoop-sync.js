@@ -58,9 +58,14 @@ exports.handler = async function (event) {
 
   try {
     const [recoveryRes, cyclesRes] = await Promise.all([
-      fetch("https://api.prod.whoop.com/developer/v1/recovery?limit=10", { headers: { Authorization: "Bearer " + accessToken } }),
-      fetch("https://api.prod.whoop.com/developer/v1/cycle?limit=10", { headers: { Authorization: "Bearer " + accessToken } })
+      fetch("https://api.prod.whoop.com/developer/v2/recovery?limit=10", { headers: { Authorization: "Bearer " + accessToken } }),
+      fetch("https://api.prod.whoop.com/developer/v2/cycle?limit=10", { headers: { Authorization: "Bearer " + accessToken } })
     ]);
+    if (!recoveryRes.ok || !cyclesRes.ok) {
+      const status = !recoveryRes.ok ? recoveryRes.status : cyclesRes.status;
+      console.error("Whoop API returned a non-OK status:", status);
+      return { statusCode: 502, body: "Whoop's API returned an error (status " + status + ") - try reconnecting Whoop in Settings" };
+    }
     const recoveryData = await recoveryRes.json();
     const cyclesData = await cyclesRes.json();
 
