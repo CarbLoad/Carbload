@@ -322,8 +322,9 @@ svg.chart { width: 100%; height: auto; display: block; }
   display: flex; align-items: center; justify-content: space-between;
   padding: 18px 20px; cursor: pointer; user-select: none;
 }
-.accordion-header h2 { margin: 0; }
-.accordion-chevron { color: var(--ink-faint); font-size: 13px; transition: transform 0.2s ease; flex-shrink: 0; }
+.accordion-header h2 { margin: 0; flex: 1; text-align: center; }
+.accordion-chevron { color: var(--ink-faint); font-size: 13px; transition: transform 0.2s ease; flex-shrink: 0; width: 13px; }
+.accordion-header::before { content: ""; width: 13px; flex-shrink: 0; }
 .accordion-card.open .accordion-chevron { transform: rotate(180deg); }
 .accordion-body {
   max-height: 0; opacity: 0; overflow: hidden;
@@ -333,7 +334,10 @@ svg.chart { width: 100%; height: auto; display: block; }
 .accordion-card.open .accordion-body { max-height: 900px; opacity: 1; padding: 0 20px 20px; }
 
 .toast {
-  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(12px);
+  /* Sits near the top rather than the bottom so it's never hidden behind a
+     host's own fixed bottom overlay (e.g. Netlify's "Powered by Netlify"
+     badge on free-tier sites) */
+  position: fixed; left: 50%; top: calc(16px + env(safe-area-inset-top)); transform: translateX(-50%) translateY(-12px);
   background: var(--ink); color: var(--bg); padding: 11px 20px; border-radius: 100px;
   font-family: var(--font-body); font-size: 13.5px; font-weight: 500;
   opacity: 0; pointer-events: none; transition: opacity 0.2s ease, transform 0.2s ease;
@@ -851,7 +855,7 @@ svg.chart { width: 100%; height: auto; display: block; }
     <div id="tab-log" class="tab-panel hidden">
       <div class="card accordion-card" data-accordion-card="weight">
         <div class="accordion-header" data-accordion-toggle="weight">
-          <h2>Log weight</h2>
+          <h2>Weight</h2>
           <span class="accordion-chevron">▾</span>
         </div>
         <div class="accordion-body">
@@ -871,7 +875,7 @@ svg.chart { width: 100%; height: auto; display: block; }
 
       <div class="card accordion-card" data-accordion-card="food">
         <div class="accordion-header" data-accordion-toggle="food">
-          <h2>Log food</h2>
+          <h2>Food</h2>
           <span class="accordion-chevron">▾</span>
         </div>
         <div class="accordion-body">
@@ -912,7 +916,7 @@ svg.chart { width: 100%; height: auto; display: block; }
 
       <div class="card accordion-card" data-accordion-card="hydration">
         <div class="accordion-header" data-accordion-toggle="hydration">
-          <h2>Log hydration</h2>
+          <h2>Hydration</h2>
           <span class="accordion-chevron">▾</span>
         </div>
         <div class="accordion-body">
@@ -935,7 +939,7 @@ svg.chart { width: 100%; height: auto; display: block; }
 
       <div class="card accordion-card" data-accordion-card="micro">
         <div class="accordion-header" data-accordion-toggle="micro">
-          <h2>Log micronutrients</h2>
+          <h2>Micronutrients</h2>
           <span class="accordion-chevron">▾</span>
         </div>
         <div class="accordion-body">
@@ -966,7 +970,7 @@ svg.chart { width: 100%; height: auto; display: block; }
 
       <div class="card accordion-card" data-accordion-card="workout">
         <div class="accordion-header" data-accordion-toggle="workout">
-          <h2>Log a workout</h2>
+          <h2>Workout</h2>
           <span class="accordion-chevron">▾</span>
         </div>
         <div class="accordion-body">
@@ -1007,7 +1011,7 @@ svg.chart { width: 100%; height: auto; display: block; }
 
       <div class="card accordion-card" data-accordion-card="race">
         <div class="accordion-header" data-accordion-toggle="race">
-          <h2>Log a race</h2>
+          <h2>Race</h2>
           <span class="accordion-chevron">▾</span>
         </div>
         <div class="accordion-body">
@@ -1052,7 +1056,7 @@ svg.chart { width: 100%; height: auto; display: block; }
 
       <div class="card accordion-card" data-accordion-card="whoop" id="log-card-whoop">
         <div class="accordion-header" data-accordion-toggle="whoop">
-          <h2>Log Whoop data</h2>
+          <h2>Whoop</h2>
           <span class="accordion-chevron">▾</span>
         </div>
         <div class="accordion-body">
@@ -1098,7 +1102,7 @@ svg.chart { width: 100%; height: auto; display: block; }
 
       <div class="card accordion-card hidden" data-accordion-card="garmin" id="log-card-garmin">
         <div class="accordion-header" data-accordion-toggle="garmin">
-          <h2>Log Garmin data</h2>
+          <h2>Garmin</h2>
           <span class="accordion-chevron">▾</span>
         </div>
         <div class="accordion-body">
@@ -1115,7 +1119,7 @@ svg.chart { width: 100%; height: auto; display: block; }
 
       <div class="card accordion-card hidden" data-accordion-card="strava" id="log-card-strava">
         <div class="accordion-header" data-accordion-toggle="strava">
-          <h2>Log Strava data</h2>
+          <h2>Strava</h2>
           <span class="accordion-chevron">▾</span>
         </div>
         <div class="accordion-body">
@@ -1132,7 +1136,7 @@ svg.chart { width: 100%; height: auto; display: block; }
 
       <div class="card accordion-card hidden" data-accordion-card="appleHealth" id="log-card-appleHealth">
         <div class="accordion-header" data-accordion-toggle="appleHealth">
-          <h2>Log Apple Health data</h2>
+          <h2>Apple Health</h2>
           <span class="accordion-chevron">▾</span>
         </div>
         <div class="accordion-body">
@@ -1149,7 +1153,7 @@ svg.chart { width: 100%; height: auto; display: block; }
 
       <div class="card accordion-card hidden" data-accordion-card="googleHealth" id="log-card-googleHealth">
         <div class="accordion-header" data-accordion-toggle="googleHealth">
-          <h2>Log Google Health data</h2>
+          <h2>Google Health</h2>
           <span class="accordion-chevron">▾</span>
         </div>
         <div class="accordion-body">
@@ -4427,7 +4431,16 @@ svg.chart { width: 100%; height: auto; display: block; }
       showApp();
       await checkOAuthConnections();
       var justConnected = handleOAuthRedirectParams();
-      if (justConnected) { syncTracker(justConnected); }
+      if (justConnected) {
+        syncTracker(justConnected);
+      } else {
+        // Auto-sync on open: keeps data current without a manual "Sync now"
+        // tap every time you open the app, for whichever trackers are
+        // already connected. Runs once per app boot/login, not on every
+        // render, so it's not hammering the APIs repeatedly.
+        if (state.integrations.whoop) syncTracker("whoop");
+        if (state.integrations.strava) syncTracker("strava");
+      }
     } else {
       showSetup();
     }
