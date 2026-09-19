@@ -59,23 +59,41 @@ exports.handler = async function (event) {
       return { statusCode: 502, body: "Unexpected response from Strava" };
     }
 
-    // One row per day - if there were several activities, keep whichever
-    // had the highest relative effort (Strava's own "suffer score").
+    // One row per day - but a day can have more than one activity (e.g. a
+    // lifting session plus a rowing session), so rather than keeping only
+    // the highest-effort activity and silently dropping the rest, combine
+    // every same-day activity into a single row: distance/duration/effort/
+    // calories are summed (two sessions are genuinely more total load than
+    // either alone - the day-type and recovery-fueling logic downstream
+    // wants that combined number), and the activity type becomes a
+    // "+"-joined label (e.g. "WeightTraining + Rowing") so nothing is lost
+    // from the summary either.
     const byDate = {};
     activities.forEach(function (a) {
       const date = ((a.start_date_local || a.start_date || "") + "").slice(0, 10);
       if (!date) return;
-      const effort = a.suffer_score || 0;
-      if (!byDate[date] || effort > (byDate[date]._effort || 0)) {
+      const activityType = a.type || a.sport_type || "Activity";
+      const distanceKm = a.distance ? Math.round((a.distance / 1000) * 100) / 100 : null;
+      const durationMin = a.moving_time ? Math.round(a.moving_time / 60) : null;
+      const effort = a.suffer_score != null ? a.suffer_score : null;
+      const calories = a.calories != null ? a.calories : null;
+
+      if (!byDate[date]) {
         byDate[date] = {
-          _effort: effort,
-          activityType: a.type || a.sport_type || "Activity",
-          distanceKm: a.distance ? Math.round((a.distance / 1000) * 100) / 100 : null,
-          durationMin: a.moving_time ? Math.round(a.moving_time / 60) : null,
-          relativeEffort: a.suffer_score != null ? a.suffer_score : null,
-          calories: a.calories != null ? a.calories : null
+          activityTypes: [activityType],
+          distanceKm: distanceKm,
+          durationMin: durationMin,
+          relativeEffort: effort,
+          calories: calories
         };
+        return;
       }
+      const d = byDate[date];
+      d.activityTypes.push(activityType);
+      if (distanceKm != null) d.distanceKm = (d.distanceKm || 0) + distanceKm;
+      if (durationMin != null) d.durationMin = (d.durationMin || 0) + durationMin;
+      if (effort != null) d.relativeEffort = (d.relativeEffort || 0) + effort;
+      if (calories != null) d.calories = (d.calories || 0) + calories;
     });
 
     const rows = Object.keys(byDate).map(function (date) {
@@ -84,8 +102,8 @@ exports.handler = async function (event) {
         id: date,
         user_id: userId,
         date: date,
-        activity_type: d.activityType,
-        distance_km: d.distanceKm,
+        activity_type: d.activityTypes.join(" + "),
+        distance_km: d.distanceKm != null ? Math.round(d.distanceKm * 100) / 100 : null,
         duration_min: d.durationMin,
         relative_effort: d.relativeEffort,
         calories: d.calories
