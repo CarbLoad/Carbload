@@ -78,6 +78,24 @@ exports.handler = async function (event) {
     const recoveryData = await recoveryRes.json();
     const cyclesData = await cyclesRes.json();
     console.log("Whoop sync: recovery records=" + (recoveryData.records || []).length + ", cycle records=" + (cyclesData.records || []).length);
+    console.log("Whoop sync: first cycle raw =", JSON.stringify((cyclesData.records || [])[0] || null));
+    console.log("Whoop sync: first recovery raw =", JSON.stringify((recoveryData.records || [])[0] || null));
+
+    // Diagnostic only: also fetch without any date filter, purely to see
+    // what the account's total unfiltered history looks like for
+    // comparison - this doesn't affect what gets saved below.
+    try {
+      const [unfilteredRecRes, unfilteredCycRes] = await Promise.all([
+        fetch("https://api.prod.whoop.com/developer/v2/recovery?limit=25", { headers: { Authorization: "Bearer " + accessToken } }),
+        fetch("https://api.prod.whoop.com/developer/v2/cycle?limit=25", { headers: { Authorization: "Bearer " + accessToken } })
+      ]);
+      const unfilteredRec = await unfilteredRecRes.json();
+      const unfilteredCyc = await unfilteredCycRes.json();
+      console.log("Whoop sync (unfiltered): recovery count=" + (unfilteredRec.records || []).length + ", cycle count=" + (unfilteredCyc.records || []).length);
+      console.log("Whoop sync (unfiltered): first cycle raw =", JSON.stringify((unfilteredCyc.records || [])[0] || null));
+    } catch (diagErr) {
+      console.warn("Whoop sync: unfiltered diagnostic call failed", diagErr);
+    }
 
     const byDate = {};
     (recoveryData.records || []).forEach(function (r) {
