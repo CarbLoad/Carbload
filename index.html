@@ -1346,6 +1346,12 @@ svg.chart { width: 100%; height: auto; display: block; }
   // that repopulation doesn't immediately trigger a sync of the same data
   // straight back to where it came from.
   var suppressSync = false;
+  // True only once a real Whoop OAuth token is confirmed to exist in
+  // Supabase (set by checkOAuthConnections/disconnectTracker) - distinct
+  // from state.integrations.whoop, which also gets flipped on for the
+  // fabricated "sample data" demo. Used to stop the fake live-strain
+  // preview from covering up real synced data once really connected.
+  var whoopRealConnected = false;
 
   // One entry per log table: how to turn a row of state[stateKey] into a
   // Supabase row and back. idKey is the JS field that uniquely identifies
@@ -2754,12 +2760,14 @@ svg.chart { width: 100%; height: auto; display: block; }
       }
     }
 
-    // --- Strain badge: live demo preview on today, actual logged value on
-    // past days (see computeDemoLiveStrain for why "live" is simulated) ---
+    // --- Strain badge: a fabricated "live" preview on today when Whoop is
+    // only simulated/sample-data (see computeDemoLiveStrain), but the real
+    // synced value once a real Whoop OAuth connection exists - a real
+    // connection should never be covered up by fake numbers. ---
     var strainBadgeEl = document.getElementById("today-strain-badge");
     if (!whoopConnected) {
       strainBadgeEl.innerHTML = "";
-    } else if (isViewingToday) {
+    } else if (isViewingToday && !whoopRealConnected) {
       var demoStrain = computeDemoLiveStrain(dayType);
       strainBadgeEl.innerHTML =
         '<span class="badge badge-strain">Strain ' + demoStrain.toFixed(1) + '</span>' +
@@ -4313,9 +4321,11 @@ svg.chart { width: 100%; height: auto; display: block; }
       rows.forEach(function (r) { connected[r.provider] = true; });
       state.integrations.whoop = !!connected.whoop;
       state.integrations.strava = !!connected.strava;
+      whoopRealConnected = !!connected.whoop;
       updateOAuthConnectUI("whoop", !!connected.whoop);
       updateOAuthConnectUI("strava", !!connected.strava);
       updateConnectionVisibility();
+      renderAll();
     } catch (e) {
       console.warn("Could not check tracker connections", e);
     }
@@ -4372,6 +4382,7 @@ svg.chart { width: 100%; height: auto; display: block; }
     if (!currentUserId) return;
     await sb.from("oauth_tokens").delete().eq("user_id", currentUserId).eq("provider", provider);
     state.integrations[provider] = false;
+    if (provider === "whoop") whoopRealConnected = false;
     updateOAuthConnectUI(provider, false);
     saveState();
     updateConnectionVisibility();
