@@ -477,6 +477,7 @@ svg.chart { width: 100%; height: auto; display: block; }
             <option value="cycling">Cycling</option>
             <option value="running">Running</option>
             <option value="swimming">Swimming</option>
+            <option value="tennis">Tennis</option>
             <option value="strength">Strength / power</option>
           </select>
         </div>
@@ -692,6 +693,7 @@ svg.chart { width: 100%; height: auto; display: block; }
         <option value="cycling">Cycling</option>
         <option value="running">Running</option>
         <option value="swimming">Swimming</option>
+        <option value="tennis">Tennis</option>
         <option value="strength">Strength / power</option>
       </select>
     </div>
@@ -803,7 +805,7 @@ svg.chart { width: 100%; height: auto; display: block; }
       </div>
 
       <div class="card hidden" id="trackers-card">
-        <h2>Trackers</h2>
+        <h2>Activity</h2>
         <div id="trackers-content"></div>
       </div>
 
@@ -1027,6 +1029,7 @@ svg.chart { width: 100%; height: auto; display: block; }
               <option value="cycling">Cycling</option>
               <option value="running">Running</option>
               <option value="swimming">Swimming</option>
+              <option value="tennis">Tennis</option>
               <option value="strength">Strength / power</option>
             </select>
           </div>
@@ -1380,7 +1383,7 @@ svg.chart { width: 100%; height: auto; display: block; }
     { table: "garmin_logs", stateKey: "garminLogs", idKey: null,
       cols: { date: "date", recovery: "recovery", strain: "strain", sleepPct: "sleep_pct", calories: "calories" } },
     { table: "strava_logs", stateKey: "stravaLogs", idKey: null,
-      cols: { date: "date", activityType: "activity_type", distanceKm: "distance_km", durationMin: "duration_min", relativeEffort: "relative_effort", calories: "calories" } },
+      cols: { date: "date", activityType: "activity_type", distanceKm: "distance_km", durationMin: "duration_min", relativeEffort: "relative_effort", calories: "calories", avgHeartRate: "avg_heart_rate" } },
     { table: "apple_health_logs", stateKey: "appleHealthLogs", idKey: null,
       cols: { date: "date", activeEnergy: "active_energy", restingHr: "resting_hr", sleepHours: "sleep_hours" } },
     { table: "google_health_logs", stateKey: "googleHealthLogs", idKey: null,
@@ -1555,7 +1558,7 @@ svg.chart { width: 100%; height: auto; display: block; }
       // confirms a token actually exists in Supabase for this user.
       integrations: { whoop: false, garmin: false, strava: false, appleHealth: false, googleHealth: false },
       garminLogs: [],       // {date, recovery, strain, sleepPct, calories}
-      stravaLogs: [],       // {date, activityType, distanceKm, durationMin, relativeEffort, calories}
+      stravaLogs: [],       // {date, activityType, distanceKm, durationMin, relativeEffort, calories, avgHeartRate}
       appleHealthLogs: [],  // {date, activeEnergy, restingHr, sleepHours}
       googleHealthLogs: []  // {date, activeCalories, activeMinutes, heartPoints, sleepHours}
     };
@@ -1609,7 +1612,8 @@ svg.chart { width: 100%; height: auto; display: block; }
         { key: "distanceKm", label: "Distance (km)", placeholder: "10.2", step: "0.1", unit: " km" },
         { key: "durationMin", label: "Duration (min)", placeholder: "48", unit: " min" },
         { key: "relativeEffort", label: "Relative Effort", placeholder: "85", unit: "" },
-        { key: "calories", label: "Calories (kcal)", placeholder: "650", unit: " kcal" }
+        { key: "calories", label: "Calories (kcal)", placeholder: "650", unit: " kcal" },
+        { key: "avgHeartRate", label: "Avg heart rate (bpm)", placeholder: "142", unit: " bpm" }
       ]
     },
     appleHealth: {
@@ -1735,6 +1739,7 @@ svg.chart { width: 100%; height: auto; display: block; }
     cycling:   { label: "Cycling",                   proteinPerKg: 1.6, fatPerKg: 1.0, carbPerKg: { rest: 3,   easy: 4,   moderate: 5.5, hard: 8 } },
     running:   { label: "Running",                   proteinPerKg: 1.6, fatPerKg: 0.9, carbPerKg: { rest: 3,   easy: 4,   moderate: 5.5, hard: 7.5 } },
     swimming:  { label: "Swimming",                  proteinPerKg: 1.7, fatPerKg: 0.9, carbPerKg: { rest: 3,   easy: 4.5, moderate: 6,   hard: 8 } },
+    tennis:    { label: "Tennis",                    proteinPerKg: 1.6, fatPerKg: 1.0, carbPerKg: { rest: 3,   easy: 4,   moderate: 5.5, hard: 7.5 } },
     strength:  { label: "Strength / power",          proteinPerKg: 2.0, fatPerKg: 1.1, carbPerKg: { rest: 2.5, easy: 3,   moderate: 3.5, hard: 4.5 } }
   };
   var DAY_TYPES = ["rest", "easy", "moderate", "hard"];
@@ -1778,6 +1783,13 @@ svg.chart { width: 100%; height: auto; display: block; }
       { value: "distance_meet", label: "Pool distance (400m–1500m) meet", durationMin: 25 },
       { value: "open_water_5k", label: "Open water 5K", durationMin: 90 },
       { value: "open_water_10k", label: "Open water 10K / marathon swim", durationMin: 180 },
+      { value: "custom", label: "Custom event", durationMin: null }
+    ],
+    tennis: [
+      { value: "club_match", label: "Club match / league fixture", durationMin: 90 },
+      { value: "tournament_best_of_3", label: "Tournament match (best of 3 sets)", durationMin: 120 },
+      { value: "tournament_best_of_5", label: "Tournament match (best of 5 sets)", durationMin: 240 },
+      { value: "tournament_day", label: "All-day tournament (multiple matches)", durationMin: 360 },
       { value: "custom", label: "Custom event", durationMin: null }
     ],
     running: [
@@ -3314,33 +3326,54 @@ svg.chart { width: 100%; height: auto; display: block; }
     }).join("");
   }
 
-  // Renders the Today-tab "Trackers" card: one line per connected tracker
-  // (other than Whoop, which has its own badges) showing its entry for the
-  // day being viewed, or a "no entry" note if nothing was logged that day.
+  // Renders the Today-tab "Activity" card. Strava gets a proper activity
+  // summary (name, duration, calories, avg heart rate) since it's the one
+  // connected source that actually represents a discrete logged session;
+  // Apple/Google Health (continuous daily aggregates, not a workout) keep
+  // the simpler one-line format. Garmin has its own dedicated hero badges
+  // next to Whoop's above, so it doesn't need a line here. The whole card
+  // disappears for a day with nothing to show, rather than listing
+  // "no entry that day" - an empty card reading as broken.
   function renderTrackersCard(dateIso) {
     var cardEl = document.getElementById("trackers-card");
     var contentEl = document.getElementById("trackers-content");
     if (!cardEl || !contentEl) return;
-    // Garmin has its own dedicated hero badges next to Whoop's above, so it
-    // doesn't also need a line here.
     var connected = TRACKER_IDS.filter(function (id) { return id !== "garmin" && state.integrations[id]; });
-    if (!connected.length) {
+    var pieces = [];
+    connected.forEach(function (id) {
+      var def = TRACKER_DEFS[id];
+      var entry = state[def.stateKey].filter(function (e) { return e.date === dateIso; })[0];
+      if (!entry) return;
+
+      if (id === "strava") {
+        var details = [];
+        if (entry.durationMin != null) details.push(formatMinutes(entry.durationMin));
+        if (entry.calories != null) details.push(Math.round(entry.calories) + " kcal");
+        if (entry.avgHeartRate != null) details.push(Math.round(entry.avgHeartRate) + " bpm avg HR");
+        pieces.push(
+          '<div class="tracker-line"><strong>' + escapeHtml(entry.activityType || "Activity") + '</strong>' +
+          (details.length ? '<span class="training-status-detail"> · ' + details.join(" · ") + '</span>' : '') +
+          '</div>'
+        );
+        return;
+      }
+
+      var todayFieldUnit = (def.fields.filter(function (f) { return f.key === def.todayField; })[0] || {}).unit;
+      var valueText = trackerFieldDisplay({ key: def.todayField, unit: todayFieldUnit }, entry);
+      if (def.recoveryField && entry[def.recoveryField] != null) {
+        pieces.push("<div class=\"tracker-line\">" + def.label + ": <span class=\"badge " + recoveryBadgeClass(entry[def.recoveryField]) + "\">" + def.todayLabel + " " + entry[def.recoveryField] + "</span></div>");
+      } else {
+        pieces.push("<div class=\"tracker-line\">" + def.label + ": " + valueText + "</div>");
+      }
+    });
+
+    if (!pieces.length) {
       cardEl.classList.add("hidden");
       contentEl.innerHTML = "";
       return;
     }
     cardEl.classList.remove("hidden");
-    contentEl.innerHTML = connected.map(function (id) {
-      var def = TRACKER_DEFS[id];
-      var entry = state[def.stateKey].filter(function (e) { return e.date === dateIso; })[0];
-      if (!entry) return "<div class=\"tracker-line\">" + def.label + ": no entry that day</div>";
-      var todayFieldUnit = (def.fields.filter(function (f) { return f.key === def.todayField; })[0] || {}).unit;
-      var valueText = trackerFieldDisplay({ key: def.todayField, unit: todayFieldUnit }, entry);
-      if (def.recoveryField && entry[def.recoveryField] != null) {
-        return "<div class=\"tracker-line\">" + def.label + ": <span class=\"badge " + recoveryBadgeClass(entry[def.recoveryField]) + "\">" + def.todayLabel + " " + entry[def.recoveryField] + "</span></div>";
-      }
-      return "<div class=\"tracker-line\">" + def.label + ": " + valueText + "</div>";
-    }).join("");
+    contentEl.innerHTML = pieces.join("");
   }
 
   // Shows/hides every tracker-specific log card, history card and toggle
@@ -4404,7 +4437,13 @@ svg.chart { width: 100%; height: auto; display: block; }
     if (!token) { showToast("Please log in again first"); return; }
     if (btn) { btn.disabled = true; btn.textContent = "Syncing…"; }
     try {
-      var res = await fetch("/.netlify/functions/" + provider + "-sync", {
+      // Whoop's cycle/strain data is date-bucketed server-side using the
+      // browser's own IANA time zone (see whoop-sync.js) so it lands on the
+      // same calendar day the Whoop app itself shows it under, rather than
+      // the raw UTC date - which for a UK user, given how late a Whoop
+      // cycle's start timestamp tends to sit, was landing a day early.
+      var tz = (Intl.DateTimeFormat().resolvedOptions().timeZone) || "UTC";
+      var res = await fetch("/.netlify/functions/" + provider + "-sync?tz=" + encodeURIComponent(tz), {
         method: "POST",
         headers: { Authorization: "Bearer " + token }
       });
