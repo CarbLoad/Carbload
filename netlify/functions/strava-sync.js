@@ -54,10 +54,34 @@ exports.handler = async function (event) {
     const actRes = await fetch("https://www.strava.com/api/v3/athlete/activities?per_page=15", {
       headers: { Authorization: "Bearer " + accessToken }
     });
-    const activities = await actRes.json();
-    if (!Array.isArray(activities)) {
+    const summaryActivities = await actRes.json();
+    if (!Array.isArray(summaryActivities)) {
       return { statusCode: 502, body: "Unexpected response from Strava" };
     }
+
+    // The list endpoint above only returns Strava's "SummaryActivity" shape,
+    // which never includes calories at all (for any activity type - that's
+    // why every row, weight training included, was coming through blank) -
+    // calories only exist on the per-activity "DetailedActivity" returned by
+    // GET /activities/{id}, which is what the Strava app itself is reading
+    // when it shows a calorie figure. So each activity needs one extra call
+    // to actually get that number. Capped at the same 15 activities already
+    // fetched above, well inside Strava's rate limits; a failed detail
+    // fetch for one activity just falls back to its summary fields rather
+    // than failing the whole sync.
+    const activities = await Promise.all(summaryActivities.map(async function (a) {
+      try {
+        const detailRes = await fetch("https://www.strava.com/api/v3/activities/" + a.id, {
+          headers: { Authorization: "Bearer " + accessToken }
+        });
+        if (!detailRes.ok) return a;
+        const detail = await detailRes.json();
+        return Object.assign({}, a, detail);
+      } catch (detailErr) {
+        console.warn("Strava sync: detail fetch failed for activity " + a.id, detailErr);
+        return a;
+      }
+    }));
 
     // One row per day - but a day can have more than one activity (e.g. a
     // lifting session plus a rowing session), so rather than keeping only
@@ -73,10 +97,38 @@ exports.handler = async function (event) {
       const date = ((a.start_date_local || a.start_date || "") + "").slice(0, 10);
       if (!date) return;
       const activityType = a.type || a.sport_type || "Activity";
+
+      // Strava's moving_time excludes whatever it judges to be "stopped"
+      // time, based on a GPS/speed stream - correct for filtering out
+      // traffic-light stops on an outdoor ride or run. An indoor rower has
+      // no GPS: its "speed" is derived stroke by stroke, and the near-zero
+      // speed during each stroke's recovery phase gets misread as
+      // "stopped", which is how a real 30/60-minute row ends up synced as
+      // a 1-3 minute one. Weight-training sessions weren't affected
+      // because they never had a speed stream to auto-pause against in
+      // the first place, so moving_time was already just elapsed time for
+      // those. elapsed_time (total wall-clock duration) is the right
+      // number for any activity with no meaningful "stopped" state -
+      // Strava's own "trainer" flag marks indoor/stationary sessions, and
+      // Rowing is included explicitly since indoor-rower syncs don't
+      // always set that flag.
+      const isStationary = a.trainer || activityType === "Rowing";
+      const durationSeconds = isStationary ? (a.elapsed_time || a.moving_time) : (a.moving_time || a.elapsed_time);
       const distanceKm = a.distance ? Math.round((a.distance / 1000) * 100) / 100 : null;
-      const durationMin = a.moving_time ? Math.round(a.moving_time / 60) : null;
+      const durationMin = durationSeconds ? Math.round(durationSeconds / 60) : null;
       const effort = a.suffer_score != null ? a.suffer_score : null;
-      const calories = a.calories != null ? a.calories : null;
+      let calories = a.calories != null ? a.calories : null;
+      // Strava only has calories to report when the activity carried heart
+      // rate or power data - an erg session with neither (common: no HR
+      // strap, no separate power meter) comes back with calories = null,
+      // which isn't a sync bug, just missing source data. Concept2's own
+      // published estimate (kcal/hr ~= watts*4 + 300) fills that gap when
+      // the rowing computer at least reported average power, rather than
+      // leaving the field blank; it never overrides a real Strava number.
+      if (calories == null && activityType === "Rowing" && a.average_watts != null && durationSeconds) {
+        calories = Math.round((a.average_watts * 4 + 300) * (durationSeconds / 3600));
+      }
+      const avgHr = a.average_heartrate != null ? a.average_heartrate : null;
 
       if (!byDate[date]) {
         byDate[date] = {
@@ -84,7 +136,13 @@ exports.handler = async function (event) {
           distanceKm: distanceKm,
           durationMin: durationMin,
           relativeEffort: effort,
-          calories: calories
+          calories: calories,
+          // Weighted by each activity's own duration so a longer, easier
+          // session doesn't get out-voted by a short, spiky one when a day
+          // has more than one activity - kept as running totals here and
+          // divided out below once every activity's been folded in.
+          hrWeightedSum: avgHr != null && durationSeconds ? avgHr * durationSeconds : 0,
+          hrWeightSeconds: avgHr != null && durationSeconds ? durationSeconds : 0
         };
         return;
       }
@@ -94,14 +152,20 @@ exports.handler = async function (event) {
       if (durationMin != null) d.durationMin = (d.durationMin || 0) + durationMin;
       if (effort != null) d.relativeEffort = (d.relativeEffort || 0) + effort;
       if (calories != null) d.calories = (d.calories || 0) + calories;
+      if (avgHr != null && durationSeconds) {
+        d.hrWeightedSum += avgHr * durationSeconds;
+        d.hrWeightSeconds += durationSeconds;
+      }
     });
 
     const rows = Object.keys(byDate).map(function (date) {
       const d = byDate[date];
+      const avgHeartRate = d.hrWeightSeconds ? Math.round(d.hrWeightedSum / d.hrWeightSeconds) : null;
       return {
         id: date,
         user_id: userId,
         date: date,
+        avg_heart_rate: avgHeartRate,
         activity_type: d.activityTypes.join(" + "),
         distance_km: d.distanceKm != null ? Math.round(d.distanceKm * 100) / 100 : null,
         duration_min: d.durationMin,
